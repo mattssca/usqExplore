@@ -5,6 +5,6 @@ account: mattsada
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 14872582
-bundleId: 10394194
+bundleId: 10401977
 url: https://mattsada.shinyapps.io/uroscanseq_exploration/
 version: 1
