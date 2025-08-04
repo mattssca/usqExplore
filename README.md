@@ -10,10 +10,10 @@
 
 ## General UI
 
-* [ ] Add an option for generating proportion plots, and make it the default.
+* [X] Add an option for generating proportion plots, and make it the default.
 * [ ] Consider offering users the option to upload their data. How can it be done?
 * [ ] Information regarding expression data, such as batch and log transformation.
-* [ ] Kaplan-Meier curve from meta-gene.
+* [X] Kaplan-Meier curve from meta-gene.
 
 ## Data
 
@@ -23,7 +23,7 @@
 
 * [X] Meta-gene, a summarized expression for a defined set of genes.
 * [X] Interactive selection of genes to construct metagenes.
-* [ ] Select one gene or metagene and construct a Kaplan-Meier plot that is subtype-dependent. Add tick boxes for subtype selection.
+* [X] Select one gene or metagene and construct a Kaplan-Meier plot that is subtype-dependent. Add tick boxes for subtype selection.
 
 ## Metadata
 

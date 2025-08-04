@@ -144,7 +144,7 @@ ui <- fluidPage(
                 tabPanel("Survival",
                          tags$div(class = "section-title", "Kaplan-Meier Plot"),
                          selectizeInput("km_gene", "Select gene or meta-gene",
-                                     choices = NULL, selected = NULL),
+                                     choices = exp_genes, selected = NULL, options = list(server = TRUE)),
                          selectInput(
                            "km_endpoint", "Select clinical endpoint",
                            choices = c(
@@ -157,9 +157,9 @@ ui <- fluidPage(
                            selected = "Progression"
                          ),
                          pickerInput(
-                           "km_subtypes",
-                           "Show subtypes",
-                           choices = c("None", levels(metadata$Prediction.5.Class)),
+                           "km_filter_subtypes",
+                           "Filter samples by subtype",
+                           choices = levels(metadata$Prediction.5.Class),
                            selected = levels(metadata$Prediction.5.Class),
                            multiple = TRUE,
                            options = list(`actions-box` = TRUE, `live-search` = TRUE)
@@ -168,7 +168,8 @@ ui <- fluidPage(
                                       choices = c("Median" = "median", "Tertiles" = "tertile", "Quartiles" = "quartile"),
                                       inline = TRUE
                          ),
-                         plotOutput("km_plot")
+                         checkboxInput("km_show_confint", "Show confidence intervals", value = TRUE),
+                         plotOutput("km_plot", height = "700px")
                 )
               )
     )
@@ -717,63 +718,50 @@ server <- function(input, output, session) {
   })
 
   # --- SURVIVAL TAB LOGIC ---
+  prev_gene_choices <- reactiveVal(NULL)
+
   observe({
     gene_choices <- c(names(metagene_exprs()), exp_genes)
-    updateSelectizeInput(session, "km_gene", choices = gene_choices, selected = if (length(gene_choices) > 0) gene_choices[1] else NULL, server = TRUE)
+    current_sel <- input$km_gene
+    valid_sel <- current_sel[current_sel %in% gene_choices]
+    if (!identical(prev_gene_choices(), gene_choices)) {
+      updateSelectizeInput(session, "km_gene", choices = gene_choices, selected = if (length(valid_sel) > 0) valid_sel else NULL)
+      prev_gene_choices(gene_choices)
+    }
   })
 
+  # --- KM Survival Plot logic ---
   output$km_plot <- renderPlot({
-    req(input$km_gene, input$km_endpoint, input$km_subtypes)
+    gene_selected <- input$km_gene
+    cut_method <- input$km_cut
+    endpoint <- input$km_endpoint
+    filter_subtypes <- input$km_filter_subtypes
+    metagenes <- metagene_exprs()
+    genes_all <- exp_genes
+    req(gene_selected, cut_method, endpoint, filter_subtypes)
     df <- data_filtered()
-    gene <- input$km_gene
+    gene <- gene_selected
 
+    # Filter samples by selected subtypes
+    df <- df[df$Prediction.5.Class %in% filter_subtypes, , drop = FALSE]
+
+    # Endpoint mapping (adjust column names as needed)
     endpoint_map <- list(
-      "Progression" = list(
-        filter_col = "Progression",
-        time_col = "Progression.Time",
-        event_col = "Progression.Event"
-      ),
-      "Clinical Progression" = list(
-        filter_col = "Progression.Clinical",
-        time_col = "Progression.Clinical.Time",
-        event_col = "Progression.Clinical.Event"
-      ),
-      "Clinical Progression During Follow-up" = list(
-        filter_col = "Progression.During.Follow.up",
-        time_col = "Progression.During.Follow.up.Time",
-        event_col = "Progression.During.Follow.up.Event"
-      ),
-      "BCG Any" = list(
-        filter_col = "BCG.Any",
-        time_col = "BCG.Any.Time",
-        event_col = "BCG.Any.Event"
-      ),
-      "BCG Adequate" = list(
-        filter_col = "BCG.Adequate",
-        time_col = "BCG.Adequate.Time",
-        event_col = "BCG.Adequate.Event"
-      )
+      "Progression" = list(time_col = "Progression.Time", event_col = "Progression.Event"),
+      "Clinical Progression" = list(time_col = "Progression.Clinical.Time", event_col = "Progression.Clinical.Event"),
+      "Clinical Progression During Follow-up" = list(time_col = "Progression.During.Follow.up.Time", event_col = "Progression.During.Follow.up.Event"),
+      "BCG Any" = list(time_col = "BCG.Any.Time", event_col = "BCG.Any.Event"),
+      "BCG Adequate" = list(time_col = "BCG.Adequate.Time", event_col = "BCG.Adequate.Event")
     )
+    ep <- endpoint_map[[endpoint]]
+    if (is.null(ep)) return(NULL)
 
-    ep <- endpoint_map[[input$km_endpoint]]
-    if (is.null(ep) || !all(c(ep$filter_col, ep$time_col, ep$event_col, "Prediction.5.Class") %in% names(df))) {
-      showNotification("Selected endpoint is not available in the data.", type = "error")
-      return(NULL)
-    }
-
-    df <- df[df[[ep$filter_col]] == "Yes", , drop = FALSE]
-    # Subtype filtering logic
-    if (!is.null(input$km_subtypes) && !"None" %in% input$km_subtypes) {
-      df <- df[df$Prediction.5.Class %in% input$km_subtypes, , drop = FALSE]
-    }
-    if (nrow(df) == 0) {
-      showNotification("No samples available for the selected endpoint and subtype(s).", type = "error")
-      return(NULL)
-    }
+    # Filter out samples with NA in the event column
+    df <- df[!is.na(df[[ep$event_col]]), , drop = FALSE]
 
     valid_samples <- df$Sample.ID[df$Sample.ID %in% colnames(expr_mat)]
-    if (gene %in% names(metagene_exprs())) {
-      expr <- metagene_exprs()[[gene]][valid_samples]
+    if (gene %in% names(metagenes)) {
+      expr <- metagenes[[gene]][valid_samples]
     } else if (gene %in% rownames(expr_mat)) {
       expr <- expr_mat[gene, valid_samples]
     } else {
@@ -813,28 +801,58 @@ server <- function(input, output, session) {
       showNotification("Invalid cutoff method.", type = "error")
       return(NULL)
     }
-    if (is.null(group)) {
-      showNotification("Failed to create groups for KM plot.", type = "error")
-      return(NULL)
-    }
 
-    # Plot logic: if "None" is selected, do not separate by subtype
-    if (!is.null(input$km_subtypes) && "None" %in% input$km_subtypes) {
-      surv_obj <- survival::Surv(surv_time, surv_event)
-      fit <- survival::survfit(surv_obj ~ group)
-      survminer::ggsurvplot(fit, data = data.frame(group), risk.table = TRUE, pval = TRUE, legend.title = "Group")$plot
+    plot_df <- data.frame(
+      surv_time = surv_time,
+      surv_event = surv_event,
+      group = group,
+      subtype = subtype
+    )
+
+    # Always group by gene expression cutoff
+    fit <- survival::survfit(survival::Surv(surv_time, surv_event) ~ group, data = plot_df)
+    n_total <- length(surv_event)
+    n_events <- sum(surv_event == 1, na.rm = TRUE)
+    n_no_events <- sum(surv_event == 0, na.rm = TRUE)
+    # Dynamic plot title based on selected subtypes
+    if (length(filter_subtypes) == length(levels(df$Prediction.5.Class))) {
+      plot_title <- "Kaplan-Meier: All Subtypes"
+      subset_info <- "All subtypes included"
     } else {
-      surv_obj <- survival::Surv(surv_time, surv_event)
-      fit <- survival::survfit(surv_obj ~ subtype)
-      survminer::ggsurvplot(
-        fit,
-        data = data.frame(subtype = subtype),
-        risk.table = TRUE,
-        pval = TRUE,
-        legend.title = "Subtype"
-      )$plot
+      plot_title <- paste("Kaplan-Meier:", paste(filter_subtypes, collapse = ", "))
+      subset_info <- paste("Subset:", paste(filter_subtypes, collapse = ", "))
     }
-  })
+    sample_info <- paste0("Samples: ", n_total, " (", n_events, " events, ", n_no_events, " censored)")
+    subtitle_text <- paste("Gene:", gene_selected, "| Endpoint:", endpoint, "\n", sample_info)
+
+    group_palette <- RColorBrewer::brewer.pal(4, "Set1")
+
+    ggsurv <- survminer::ggsurvplot(
+      fit,
+      data = plot_df,
+      risk.table = TRUE,
+      pval = TRUE,
+      pval.coord = c(0.6, 0.6),
+      legend.title = "Group",
+      ggtheme = theme_light() + theme(
+        plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5, size = 11, face = "italic"),
+        plot.caption = element_text(hjust = 0.5, size = 12, face = "italic"),
+        axis.title = element_text(size = 13),
+        axis.text = element_text(size = 12),
+        legend.position = "top"
+      ),
+      surv.median.line = "hv",
+      conf.int = input$km_show_confint,
+      palette = group_palette,
+      title = plot_title,
+      subtitle = subtitle_text,
+      xlab = "Time (days)",
+      ylab = "Survival Probability"
+    )
+    ggsurv$plot <- ggsurv$plot + coord_cartesian(ylim = c(0.5, 1))
+    print(ggsurv)
+  }, res = 120)
 }
 
 shinyApp(ui, server)
