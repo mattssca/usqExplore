@@ -7,26 +7,20 @@ library(RColorBrewer)
 library(pheatmap)
 library(later)
 library(colourpicker)
+library(survival)
+library(survminer)
 
-# Load metadata
+# Load required data
 load("uroscanseq_meta.Rdata")
 metadata = uroscanseq_meta
-
-# Load expression data (should create expr_mat)
 load("expr_met_uroscanseq.Rdata")
-expr_mat = uroscanseq_expr
-
-# Load sample order vector
+expr_mat = as.matrix(uroscanseq_expr)
 load("sample_order.Rdata")
 names(sample_order) <- colnames(expr_mat)[sample_order]
+load("genes_to_plot_df.Rdata")
+load("exp_genes.Rdata")
+load("var_categories.Rdata")
 
-# Load predefined gene lists
-load("genes_to_plot_df.Rdata") # Should create genes_to_plot_df with columns: gene, signature
-
-# Load gene names for fast selectize
-load("exp_genes.Rdata") # exp_genes should be a character vector of gene names
-
-# Define your color palette
 lund_colors <- c(
   Uro = "#3cb44b",
   GU = "#4363d8",
@@ -43,38 +37,6 @@ custom_colorscale <- list(
   list(0.5, "black"),
   list(1, "red")
 )
-
-# Set levels for Predictions_5classes
-if ("subtype_5_class" %in% names(metadata)) {
-  metadata$subtype_5_class <- factor(
-    metadata$subtype_5_class,
-    levels = c("Uro", "GU", "BaSq", "Mes", "ScNE")
-  )
-}
-
-# Set levels for Predictions_7classes
-if ("subtype_7_class" %in% names(metadata)) {
-  metadata$subtype_7_class <- factor(
-    metadata$subtype_7_class,
-    levels = c("UroA", "UroB", "UroC", "GU", "BaSq", "Mes", "ScNE")
-  )
-}
-
-# Variable categories
-var_categories <- list(
-  `Clinical Data` = c("clin_prog_tat1_event", "clin_prog_tat1_time", "clin_prog_pat_tat1_event", "clin_prog_pat_tat1_time", "clin_clinprog_fu_tat1_event", "clin_clinprog_fu_tat1_time", "bcg_any_event", "bcg_any_time", "bcg_adequate_event", "bcg_adequate_time", "gem_mmc_event", "gem_mmc_time", "time_to_primary_cystectomy", "progression_event", "time_to_progression", "primary_cystectomy_event_nmi", "all_cystectomy_event_nmi", "time_to_cystectomy_nmi", "recurrence_event", "time_to_recurrence", "primary_recurrence", "palliative", "pdd_turb_returb", "urine_cytology_pre_turb", "tnm", "primary_cystectomy", "neoadj_induction", "preop_chemo_type", "n_chemo_doses", "returb", "pad_returb_t_stage", "prostatic_urethra", "lvi", "t1_invasion_depth", "variant_histology", "bcg_instillations", "adjuvant_mmc", "only_palliative_treatment", "ypt", "ypn", "tma_grade_who16_as"),
-  `Cohorts` = c("sample_id", "cohort", "seq_batch", "cohort_group"),
-  `Descriptive` = c("age", "eau_risk_category", "eau_score", "hospital_turb", "gender", "smoker", "death_other_cause", "death_bladder_cancer"),
-  `EAU Factors` = c("eau_over70", "eau_tumor_status", "eau_n_tumors", "eau_tumor_diam", "eau_stage", "eau_cis", "eau_who73", "eau_var_hist", "eau_prostatic_urethra", "eau_lvi"),
-  `LundTax Signatures` = c("proliferation_score", "progression_score", "progression_risk", "mol_grade_2022_score", "mol_grade_2022", "mol_grade_1999_score", "mol_grade_1999", "stromal141_up", "immune141_up", "b_cells", "t_cells", "cd8_t_cells", "nk_cells", "t_cells", "neutrophils", "monocytic_lineage", "macrophages", "m2_macrophage", "myeloid_dc", "cytotoxicity_score", "endothelial_cells", "fibroblasts", "smooth_muscle"),
-  `Pathology` = c("multi_hist"),
-  `Sequencing Metrics` = c("dna_ngul", "rna_ngul", "rin"),
-  `Sample Sets` = c("set_719", "set_676", "set_hq_572", "set_hq_572_index_uc_533", "set_lq_147", "set_lq_147_index_uc_129", "set_rna_tma", "set_eau_risk", "set_clin_prog_tat1", "set_clin_prog_ta", "set_clin_prog_t1", "set_clin_prog_pat_tat1", "set_clin_prog_pat_ta", "set_clin_prog_pat_t1", "set_clin_clinprog_fu_tat1", "set_clin_clinprog_fu_ta", "set_clin_clinprog_fu_t1", "set_bcg_any", "set_bcg_adequate", "set_gem_mmc"),
-  `Subtype Predictions` = c("subtype_5_class", "subtype_7_class", "Uro_score", "UroA_score", "UroB_score", "UroC_score", "GU_score", "BaSq_score", "Mes_score", "ScNE_score"),
-  `Tumor Information` = c("stage_simp", "stage", "node", "met", "grade", "n_tumors_cat", "tumor_size"),
-  `Quality Control` = c("qc_evaluation", "sample_category", "category_group")
-)
-
 
 ui <- fluidPage(
   theme = bs_theme(bootswatch = "minty"),
@@ -112,17 +74,18 @@ ui <- fluidPage(
                    tags$div(id = "filter_ui_container")
                  ),
                  hr(),
-                 pickerInput("xvar", "X variable", choices = var_categories, selected = "subtype_5_class", 
+                 pickerInput("xvar", "X variable", choices = var_categories, selected = "Prediction.5.Class", 
                              options = list(`live-search` = TRUE)),
                  pickerInput("yvar", "Y variable (optional)", choices = c("None", var_categories), selected = "None", 
                              options = list(`live-search` = TRUE)),
-                 pickerInput("color", "Color by (optional)", choices = c("None", var_categories), selected = "subtype_5_class", 
+                 pickerInput("color", "Color by (optional)", choices = c("None", var_categories), selected = "Prediction.5.Class", 
                              options = list(`live-search` = TRUE)),
                  radioGroupButtons("plot_type", "Plot type",
                                    choices = c("Histogram" = "hist", "Barplot" = "bar", "Boxplot" = "box", "Scatterplot" = "scatter"),
                                    selected = "hist", justified = TRUE
                  ),
                  prettySwitch("sort_x", "Sort/Ranks by X variable", value = FALSE, status = "info"),
+                 prettySwitch("show_proportion", "Show proportions", value = FALSE),
                  downloadBttn("download_ids", "Download Sample IDs", style = "gradient", color = "primary")
     ),
     mainPanel(width = 7,
@@ -155,11 +118,11 @@ ui <- fluidPage(
                          pickerInput(
                            "heatmap_ann_vars",
                            "Add annotation variable(s) for heatmap (in addition to Subtype 5 Class)",
-                           choices = setdiff(names(metadata), "subtype_5_class"),
+                           choices = setdiff(names(metadata), "Prediction.5.Class"),
                            multiple = TRUE,
                            options = list(`live-search` = TRUE)
                          ),
-                         uiOutput("ann_color_pickers"), # <-- Add this line
+                         uiOutput("ann_color_pickers"),
                          tags$hr(),
                          fluidRow(
                            column(
@@ -177,6 +140,35 @@ ui <- fluidPage(
                          plotlyOutput("heatmap_plot"),
                          tags$div(style = "height:20px"),
                          uiOutput("heatmap_legends")
+                ),
+                tabPanel("Survival",
+                         tags$div(class = "section-title", "Kaplan-Meier Plot"),
+                         selectizeInput("km_gene", "Select gene or meta-gene",
+                                     choices = NULL, selected = NULL),
+                         selectInput(
+                           "km_endpoint", "Select clinical endpoint",
+                           choices = c(
+                             "Progression",
+                             "Clinical Progression",
+                             "Clinical Progression During Follow-up",
+                             "BCG Any",
+                             "BCG Adequate"
+                           ),
+                           selected = "Progression"
+                         ),
+                         pickerInput(
+                           "km_subtypes",
+                           "Show subtypes",
+                           choices = c("None", levels(metadata$Prediction.5.Class)),
+                           selected = levels(metadata$Prediction.5.Class),
+                           multiple = TRUE,
+                           options = list(`actions-box` = TRUE, `live-search` = TRUE)
+                         ),
+                         radioButtons("km_cut", "Cutoff method",
+                                      choices = c("Median" = "median", "Tertiles" = "tertile", "Quartiles" = "quartile"),
+                                      inline = TRUE
+                         ),
+                         plotOutput("km_plot")
                 )
               )
     )
@@ -188,6 +180,18 @@ server <- function(input, output, session) {
   filter_ids <- reactiveVal(character(0))
   
   observeEvent(input$add_filter, {
+    # Save all current filter input values BEFORE UI changes
+    current_ids <- filter_ids()
+    current_vals <- lapply(current_ids, function(id) {
+      list(
+        cat = input[[paste0(id, "_cat")]],
+        var = input[[paste0(id, "_var")]],
+        val = input[[paste0(id, "_val")]]
+      )
+    })
+    names(current_vals) <- current_ids
+    
+    # Insert new filter UI
     id <- paste0("filter_", filter_count() + 1)
     insertUI(
       selector = "#filter_ui_container",
@@ -204,8 +208,35 @@ server <- function(input, output, session) {
     )
     filter_count(filter_count() + 1)
     filter_ids(c(filter_ids(), id))
+    
+    # Restore previous filter input values after UI update
+    later::later(function() {
+      for (fid in names(current_vals)) {
+        vals <- current_vals[[fid]]
+        # Restore cat and var immediately
+        if (!is.null(vals$cat)) {
+          updatePickerInput(session, paste0(fid, "_cat"), selected = vals$cat)
+        }
+        if (!is.null(vals$var)) {
+          updatePickerInput(session, paste0(fid, "_var"), selected = vals$var)
+        }
+      }
+      # Restore val after a further delay to ensure UI is rendered
+      later::later(function() {
+        for (fid in names(current_vals)) {
+          vals <- current_vals[[fid]]
+          if (!is.null(vals$val)) {
+            # Check if the UI is a slider or picker
+            if (is.numeric(vals$val) && length(vals$val) == 2) {
+              updateSliderInput(session, paste0(fid, "_val"), value = vals$val)
+            } else {
+              updatePickerInput(session, paste0(fid, "_val"), selected = vals$val)
+            }
+          }
+        }
+      }, delay = 0.1)
+    }, delay = 0.1)
   })
-  
   observe({
     lapply(filter_ids(), function(id) {
       output[[paste0(id, "_var_ui")]] <- renderUI({
@@ -273,44 +304,69 @@ server <- function(input, output, session) {
     x <- input$xvar
     y <- if (input$yvar != "None") input$yvar else NULL
     color <- if (input$color != "None") input$color else NULL
+    show_prop <- isTRUE(input$show_proportion)
+    color_map <- if (!is.null(color) && color %in% c("Prediction.5.Class", "Prediction.7.Class")) lund_colors else NULL
     
-    if (input$sort_x && !is.null(x) && is.numeric(df[[x]])) {
-      df <- df[order(df[[x]], decreasing = TRUE), , drop = FALSE]
-      if (input$plot_type %in% c("bar", "box", "scatter")) {
-        df[[x]] <- factor(df[[x]], levels = unique(df[[x]]))
-      }
+    if (input$sort_x && !is.null(x) && !is.null(y)) {
+      ord <- order(df[[y]], na.last = TRUE)
+      df <- df[ord, , drop = FALSE]
+      df[[x]] <- factor(df[[x]], levels = unique(df[[x]]))
     }
     
-    color_map <- if (!is.null(color) && color %in% c("subtype_5_class", "subtype_7_class")) lund_colors else NULL
+    hide_x_ticks <- identical(x, "Sample.ID")
     
     if (input$plot_type == "hist") {
-      plot_ly(
+      p <- plot_ly(
         df, x = ~get(x),
         color = if (!is.null(color)) ~get(color) else NULL,
         colors = color_map,
-        type = "histogram"
-      )
+        type = "histogram",
+        histnorm = if (show_prop) "probability" else ""
+      ) %>%
+        layout(
+          yaxis = list(title = if (show_prop) "Proportion" else "Count"),
+          xaxis = list(showticklabels = !hide_x_ticks)
+        )
+      p
     } else if (input$plot_type == "bar") {
-      plot_ly(
-        df, x = ~get(x),
-        color = if (!is.null(color)) ~get(color) else NULL,
-        colors = color_map,
-        type = "bar"
-      )
+      tab <- as.data.frame(table(df[[x]], if (!is.null(color)) df[[color]] else NULL))
+      colnames(tab)[1:2] <- c("x", "color")
+      tab$Freq <- as.numeric(tab$Freq)
+      tab <- tab[tab$Freq > 0, ]
+      if (show_prop) {
+        total <- tapply(tab$Freq, tab$x, sum)
+        tab$yval <- tab$Freq / total[tab$x]
+        ylab <- "Proportion"
+      } else {
+        tab$yval <- tab$Freq
+        ylab <- "Count"
+      }
+      p <- plot_ly(
+        tab, x = ~x, y = ~yval, type = "bar",
+        color = if (!is.null(color)) ~color else NULL,
+        colors = color_map
+      ) %>%
+        layout(
+          yaxis = list(title = ylab),
+          xaxis = list(showticklabels = !hide_x_ticks)
+        )
+      p
     } else if (input$plot_type == "box") {
       plot_ly(
         df, x = ~get(x), y = ~get(y),
         color = if (!is.null(color)) ~get(color) else NULL,
         colors = color_map,
         type = "box"
-      )
+      ) %>%
+        layout(xaxis = list(showticklabels = !hide_x_ticks))
     } else if (input$plot_type == "scatter") {
       plot_ly(
         df, x = ~get(x), y = ~get(y),
         color = if (!is.null(color)) ~get(color) else NULL,
         colors = color_map,
         type = "scatter", mode = "markers"
-      )
+      ) %>%
+        layout(xaxis = list(showticklabels = !hide_x_ticks))
     }
   })
   
@@ -323,7 +379,7 @@ server <- function(input, output, session) {
       paste0("sample_ids_", Sys.Date(), ".txt")
     },
     content = function(file) {
-      writeLines(as.character(data_filtered()$sample_id), file)
+      writeLines(as.character(data_filtered()$Sample.ID), file)
     }
   )
   
@@ -485,7 +541,7 @@ server <- function(input, output, session) {
   
   observeEvent(input$plot_heatmap, {
     req(expr_mat)
-    sample_ids <- data_filtered()$sample_id
+    sample_ids <- data_filtered()$Sample.ID
     valid_samples <- sample_ids[sample_ids %in% colnames(expr_mat)]
     if (length(valid_samples) == 0) {
       output$heatmap_plot <- renderPlotly({ plotly_empty() })
@@ -493,33 +549,33 @@ server <- function(input, output, session) {
       return()
     }
     ann <- data_filtered()
-    ann <- ann[ann$sample_id %in% valid_samples, ]
-    ann <- ann[order(ann$subtype_5_class), ]
+    ann <- ann[ann$Sample.ID %in% valid_samples, ]
+    ann <- ann[order(ann$Prediction.5.Class), ]
     
     # --- Sorting logic ---
     if (!is.null(input$sort_heatmap_samples) && input$sort_heatmap_samples && exists("sample_order")) {
-      ann$sample_order_val <- sample_order[as.character(ann$sample_id)]
-      ann <- ann[order(ann$subtype_5_class, ann$sample_order_val, na.last = TRUE), ]
+      ann$sample_order_val <- sample_order[as.character(ann$Sample.ID)]
+      ann <- ann[order(ann$Prediction.5.Class, ann$sample_order_val, na.last = TRUE), ]
     }
-    sorted_samples <- ann$sample_id
+    sorted_samples <- ann$Sample.ID
     mat <- expr_mat[selected_genes_heatmap(), sorted_samples, drop = FALSE]
     
     # --- Add meta-genes as annotation tracks ---
     mg_exprs <- metagene_exprs()
     ann_tracks <- list()
     legends <- list()
-    subtype_levels <- levels(metadata$subtype_5_class)
+    subtype_levels <- levels(metadata$Prediction.5.Class)
     subtype_colors <- lund_colors[subtype_levels]
-    # Always include subtype_5_class annotation track
+    # Always include Prediction.5.Class annotation track
     ann_tracks[[length(ann_tracks) + 1]] <- plot_ly(
-      z = matrix(as.numeric(factor(ann$subtype_5_class, levels = subtype_levels)), nrow = 1),
+      z = matrix(as.numeric(factor(ann$Prediction.5.Class, levels = subtype_levels)), nrow = 1),
       x = sorted_samples,
       y = "Subtype 5 Class",
       type = "heatmap",
       showscale = FALSE,
       colors = subtype_colors,
       hoverinfo = "text",
-      text = paste("Subtype:", ann$subtype_5_class)
+      text = paste("Subtype:", ann$Prediction.5.Class)
     )
     legends[[length(legends) + 1]] <- tags$div(
       tags$b("Subtype 5 Class:"),
@@ -658,6 +714,126 @@ server <- function(input, output, session) {
         })
       )
     })
+  })
+
+  # --- SURVIVAL TAB LOGIC ---
+  observe({
+    gene_choices <- c(names(metagene_exprs()), exp_genes)
+    updateSelectizeInput(session, "km_gene", choices = gene_choices, selected = if (length(gene_choices) > 0) gene_choices[1] else NULL, server = TRUE)
+  })
+
+  output$km_plot <- renderPlot({
+    req(input$km_gene, input$km_endpoint, input$km_subtypes)
+    df <- data_filtered()
+    gene <- input$km_gene
+
+    endpoint_map <- list(
+      "Progression" = list(
+        filter_col = "Progression",
+        time_col = "Progression.Time",
+        event_col = "Progression.Event"
+      ),
+      "Clinical Progression" = list(
+        filter_col = "Progression.Clinical",
+        time_col = "Progression.Clinical.Time",
+        event_col = "Progression.Clinical.Event"
+      ),
+      "Clinical Progression During Follow-up" = list(
+        filter_col = "Progression.During.Follow.up",
+        time_col = "Progression.During.Follow.up.Time",
+        event_col = "Progression.During.Follow.up.Event"
+      ),
+      "BCG Any" = list(
+        filter_col = "BCG.Any",
+        time_col = "BCG.Any.Time",
+        event_col = "BCG.Any.Event"
+      ),
+      "BCG Adequate" = list(
+        filter_col = "BCG.Adequate",
+        time_col = "BCG.Adequate.Time",
+        event_col = "BCG.Adequate.Event"
+      )
+    )
+
+    ep <- endpoint_map[[input$km_endpoint]]
+    if (is.null(ep) || !all(c(ep$filter_col, ep$time_col, ep$event_col, "Prediction.5.Class") %in% names(df))) {
+      showNotification("Selected endpoint is not available in the data.", type = "error")
+      return(NULL)
+    }
+
+    df <- df[df[[ep$filter_col]] == "Yes", , drop = FALSE]
+    # Subtype filtering logic
+    if (!is.null(input$km_subtypes) && !"None" %in% input$km_subtypes) {
+      df <- df[df$Prediction.5.Class %in% input$km_subtypes, , drop = FALSE]
+    }
+    if (nrow(df) == 0) {
+      showNotification("No samples available for the selected endpoint and subtype(s).", type = "error")
+      return(NULL)
+    }
+
+    valid_samples <- df$Sample.ID[df$Sample.ID %in% colnames(expr_mat)]
+    if (gene %in% names(metagene_exprs())) {
+      expr <- metagene_exprs()[[gene]][valid_samples]
+    } else if (gene %in% rownames(expr_mat)) {
+      expr <- expr_mat[gene, valid_samples]
+    } else {
+      return(NULL)
+    }
+    df <- df[df$Sample.ID %in% valid_samples, , drop = FALSE]
+
+    surv_time <- suppressWarnings(as.numeric(as.character(df[[ep$time_col]])))
+    event_col <- df[[ep$event_col]]
+    if (is.factor(event_col) || is.character(event_col)) {
+      surv_event <- as.numeric(as.character(event_col))
+    } else {
+      surv_event <- as.numeric(event_col)
+    }
+
+    valid <- !is.na(expr) & !is.na(surv_time) & !is.na(surv_event)
+    if (sum(valid) == 0) {
+      showNotification("No valid samples for selected gene and endpoint.", type = "error")
+      return(NULL)
+    }
+    expr <- expr[valid]
+    surv_time <- surv_time[valid]
+    surv_event <- surv_event[valid]
+    subtype <- droplevels(df$Prediction.5.Class[valid])
+
+    cut_method <- input$km_cut
+    group <- NULL
+    if (cut_method == "median") {
+      group <- ifelse(expr > median(expr, na.rm = TRUE), "High", "Low")
+    } else if (cut_method == "tertile") {
+      q <- quantile(expr, probs = c(1/3, 2/3), na.rm = TRUE)
+      group <- cut(expr, breaks = c(-Inf, q, Inf), labels = c("Low", "Mid", "High"))
+    } else if (cut_method == "quartile") {
+      q <- quantile(expr, probs = c(0.25, 0.5, 0.75), na.rm = TRUE)
+      group <- cut(expr, breaks = c(-Inf, q, Inf), labels = c("Q1", "Q2", "Q3", "Q4"))
+    } else {
+      showNotification("Invalid cutoff method.", type = "error")
+      return(NULL)
+    }
+    if (is.null(group)) {
+      showNotification("Failed to create groups for KM plot.", type = "error")
+      return(NULL)
+    }
+
+    # Plot logic: if "None" is selected, do not separate by subtype
+    if (!is.null(input$km_subtypes) && "None" %in% input$km_subtypes) {
+      surv_obj <- survival::Surv(surv_time, surv_event)
+      fit <- survival::survfit(surv_obj ~ group)
+      survminer::ggsurvplot(fit, data = data.frame(group), risk.table = TRUE, pval = TRUE, legend.title = "Group")$plot
+    } else {
+      surv_obj <- survival::Surv(surv_time, surv_event)
+      fit <- survival::survfit(surv_obj ~ subtype)
+      survminer::ggsurvplot(
+        fit,
+        data = data.frame(subtype = subtype),
+        risk.table = TRUE,
+        pval = TRUE,
+        legend.title = "Subtype"
+      )$plot
+    }
   })
 }
 
