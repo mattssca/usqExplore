@@ -38,6 +38,36 @@ custom_colorscale <- list(
   list(1, "red")
 )
 
+# --- Forest Plot Signature Names (global scope) ---
+forest_signature_names <- c(
+  "Proliferation Score", "Mol. grade (WHO1999)", "Mol. grade (WHO2022)", "Progression Score", 
+  "Immune 141_UP", "NK Cells", "T Cells", "CD8+ T Cells", "Cytotoxicity Score", "B Cells", 
+  "Myeloid DCs", "Monocytic Lineage", "Macrophages", "M2 Macrophages", "Neutrophils", 
+  "Stromal 141_UP", "Fibroblasts", "Endothelial Cells", "Smooth Muscle"
+)
+forest_metadata_names <- c(
+  "Proliferation.Score", "Mol.Grade.WHO.1999.Score", "Mol.Grade.WHO.2022.Score", "Progression.Score", 
+  "Immune.141.Up", "NK.Cells", "T.Cells", "T.Cells.CD8", "Cytotoxicity.Score", "B.Cells", 
+  "Myeloid.DCs", "Monocytic.Lineage", "Macrophages", "M2.Macrophage", "Neutrophils", 
+  "Stromal.141.Up", "Fibroblasts", "Endothlial.Cells", "Smooth.Muscle"
+)
+
+#' Bin Numeric Variables (internal)
+int_bin_numeric_variables <- function(this_data = NULL, num_bins = NULL){
+  numeric_columns = sapply(this_data, is.numeric)
+  bin_column = function(column, num_bins){
+    range_min = min(column, na.rm = TRUE)
+    range_max = max(column, na.rm = TRUE)
+    binned_column = cut(column, 
+                        breaks = seq(range_min, range_max, length.out = num_bins + 1), 
+                        labels = FALSE, 
+                        include.lowest = TRUE)
+    return(binned_column)
+  }
+  this_data[numeric_columns] <- lapply(this_data[numeric_columns], bin_column, num_bins = num_bins)
+  return(this_data)
+}
+
 ui <- fluidPage(
   theme = bs_theme(bootswatch = "minty"),
   tags$head(
@@ -170,6 +200,44 @@ ui <- fluidPage(
                          ),
                          checkboxInput("km_show_confint", "Show confidence intervals", value = TRUE),
                          plotOutput("km_plot", height = "700px")
+                ),
+                tabPanel("LundTax Signature Forest Plot",
+                         tags$div(class = "section-title", "Forest Plot: LundTax Signatures (Cox Model)"),
+                         selectInput(
+                           "forest_endpoint", "Select clinical endpoint",
+                           choices = c(
+                             "Progression",
+                             "Clinical Progression",
+                             "Clinical Progression During Follow-up",
+                             "BCG Any",
+                             "BCG Adequate"
+                           ),
+                           selected = "Progression"
+                         ),
+                         pickerInput(
+                           "forest_filter_subtypes",
+                           "Filter samples by subtype",
+                           choices = levels(metadata$Prediction.5.Class),
+                           selected = levels(metadata$Prediction.5.Class),
+                           multiple = TRUE,
+                           options = list(`actions-box` = TRUE, `live-search` = TRUE)
+                         ),
+                         pickerInput(
+                           "forest_signature_select",
+                           "Select signature(s) to show",
+                           choices = c("All", forest_signature_names),
+                           selected = "All",
+                           multiple = TRUE,
+                           options = list(`actions-box` = TRUE, `live-search` = TRUE)
+                         ),
+                         sliderInput(
+                           "forest_binsize",
+                           "Number of bins for numeric signatures",
+                           min = 2, max = 20, value = 10, step = 1
+                         ),
+                         actionButton("run_forest", "Run Forest Plot", class = "btn-primary"),
+                         plotOutput("forest_plot", height = "700px"),
+                         DT::dataTableOutput("forest_table")
                 )
               )
     )
@@ -853,6 +921,124 @@ server <- function(input, output, session) {
     ggsurv$plot <- ggsurv$plot + coord_cartesian(ylim = c(0.5, 1))
     print(ggsurv)
   }, res = 120)
+  
+  # --- Forest Plot Logic ---
+  observeEvent(input$run_forest, {
+    req(input$forest_endpoint, input$forest_filter_subtypes)
+    df <- data_filtered()
+    df <- df[df$Prediction.5.Class %in% input$forest_filter_subtypes, , drop = FALSE]
+    valid_samples <- df$Sample.ID[df$Sample.ID %in% colnames(expr_mat)]
+    df <- df[df$Sample.ID %in% valid_samples, , drop = FALSE]
+
+    endpoint_map <- list(
+      "Progression" = list(time_col = "Progression.Time", event_col = "Progression.Event"),
+      "Clinical Progression" = list(time_col = "Progression.Clinical.Time", event_col = "Progression.Clinical.Event"),
+      "Clinical Progression During Follow-up" = list(time_col = "Progression.During.Follow.up.Time", event_col = "Progression.During.Follow.up.Event"),
+      "BCG Any" = list(time_col = "BCG.Any.Time", event_col = "BCG.Any.Event"),
+      "BCG Adequate" = list(time_col = "BCG.Adequate.Time", event_col = "BCG.Adequate.Event")
+    )
+    ep <- endpoint_map[[input$forest_endpoint]]
+    if (is.null(ep)) return(NULL)
+
+    surv_time <- suppressWarnings(as.numeric(as.character(df[[ep$time_col]])))
+    event_col <- df[[ep$event_col]]
+    if (is.factor(event_col) || is.character(event_col)) {
+      surv_event <- as.numeric(as.character(event_col))
+    } else {
+      surv_event <- as.numeric(event_col)
+    }
+    valid <- !is.na(surv_time) & !is.na(surv_event)
+    df <- df[valid, , drop = FALSE]
+    surv_time <- surv_time[valid]
+    surv_event <- surv_event[valid]
+
+    # Determine which signatures to show
+    selected_sigs <- input$forest_signature_select
+    if (is.null(selected_sigs) || "All" %in% selected_sigs) {
+      sig_indices <- seq_along(forest_metadata_names)
+    } else {
+      sig_indices <- which(forest_signature_names %in% selected_sigs)
+    }
+
+    # Bin numeric signature columns if requested
+    binsize <- input$forest_binsize
+    df_binned <- df
+    for (i in sig_indices) {
+      sig_col <- forest_metadata_names[i]
+      if (sig_col %in% names(df_binned) && is.numeric(df_binned[[sig_col]])) {
+        df_binned[[sig_col]] <- int_bin_numeric_variables(data.frame(x = df_binned[[sig_col]]), num_bins = binsize)[[1]]
+      }
+    }
+
+    results <- lapply(sig_indices, function(i) {
+      sig_col <- forest_metadata_names[i]
+      sig_label <- forest_signature_names[i]
+      if (!sig_col %in% names(df_binned)) return(NULL)
+      sig_vec <- df_binned[[sig_col]]
+      if (all(is.na(sig_vec))) return(NULL)
+      tryCatch({
+        cox <- coxph(Surv(surv_time, surv_event) ~ sig_vec)
+        hr <- summary(cox)$coefficients[1, "exp(coef)"]
+        lower <- summary(cox)$conf.int[1, "lower .95"]
+        upper <- summary(cox)$conf.int[1, "upper .95"]
+        pval <- summary(cox)$coefficients[1, "Pr(>|z|)"]
+        data.frame(Signature = sig_label, HR = hr, Lower = lower, Upper = upper, P = pval)
+      }, error = function(e) NULL)
+    })
+    forest_df <- do.call(rbind, results)
+    # Bonferroni adjusted p-value
+    if (!is.null(forest_df) && nrow(forest_df) > 0) {
+      forest_df$Bonferroni_P <- pmin(forest_df$P * nrow(forest_df), 1)
+    }
+    output$forest_table <- DT::renderDataTable({ forest_df }, options = list(pageLength = 18))
+    output$forest_plot <- renderPlot({
+      req(forest_df)
+      library(ggplot2)
+      # Color logic: black (ns), red (p < 0.05), blue (Bonferroni p < 0.05)
+      forest_df$color <- "black"
+      forest_df$color[forest_df$P < 0.05] <- "red"
+      forest_df$color[forest_df$Bonferroni_P < 0.05] <- "blue"
+      # Title and subtitle logic
+      all_subtypes <- length(input$forest_filter_subtypes) == length(levels(metadata$Prediction.5.Class))
+      if (all_subtypes) {
+        plot_title <- "Forest Plot: All Subtypes"
+      } else {
+        plot_title <- paste("Forest Plot:", paste(input$forest_filter_subtypes, collapse = ", "))
+      }
+      n_total <- length(surv_event)
+      n_events <- sum(surv_event == 1, na.rm = TRUE)
+      n_no_events <- sum(surv_event == 0, na.rm = TRUE)
+      subtitle_text <- paste("Endpoint:", input$forest_endpoint, "| Samples:", n_total, "(", n_events, "events,", n_no_events, "censored)")
+      # Legend labels and colors
+      legend_labels <- c("p ≥ 0.05", "p < 0.05", "Bonferroni p < 0.05")
+      legend_colors <- c("black", "red", "blue")
+      forest_df$legend_group <- factor(
+        ifelse(forest_df$Bonferroni_P < 0.05, legend_labels[3],
+          ifelse(forest_df$P < 0.05, legend_labels[2], legend_labels[1])
+        ),
+        levels = legend_labels
+      )
+      forest_df$legend_color <- as.character(forest_df$color)
+      ggplot(forest_df, aes(x = reorder(Signature, HR), y = HR, color = legend_group)) +
+        geom_point(size = 4.5) +
+        geom_errorbar(aes(ymin = Lower, ymax = Upper, color = legend_group), width = 0.2) +
+        geom_hline(yintercept = 1, linetype = "dashed", color = "grey40") +
+        coord_flip() +
+        scale_color_manual(
+          name = "Significance: ",
+          values = setNames(legend_colors, legend_labels)
+        ) +
+        labs(x = "Signature", y = "Hazard Ratio (HR)", title = plot_title, subtitle = subtitle_text) +
+        theme_minimal(base_size = 14) +
+        theme(
+          plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+          plot.subtitle = element_text(hjust = 0.5, size = 11, face = "italic"),
+          legend.position = "top",
+          legend.title = element_text(size = 9, face = "bold"),
+          legend.text = element_text(size = 9)
+        )
+    }, res = 120, height = 700, width = 900)
+  })
 }
 
 shinyApp(ui, server)
