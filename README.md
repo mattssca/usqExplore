@@ -1,5 +1,6 @@
-# UROSCANSEQ Explorer
+<img src="man/figures/logo.png" align="right" height="280" alt="stageClassifieR logo" />
 
+# UROSCANSEQ Explorer
 Welcome to the UROSCANSEQ Explorer Shiny App!
 
 ## What does the app do?
