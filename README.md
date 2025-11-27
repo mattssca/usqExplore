@@ -1,6 +1,6 @@
-<img src="man/figures/logo.png" align="right" height="280" alt="UroscanseqExplorer logo" />
+<img src="man/figures/logo.png" align="right" height="280" alt="usqExplore logo" />
 
-# UROSCANSEQ Explorer
+# usqExplore
 Welcome to the UROSCANSEQ Explorer Shiny App!
 
 ## What does the app do?
