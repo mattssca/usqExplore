@@ -242,7 +242,8 @@ ui <- fluidPage(
         column(
           width = 6,
           div(style = "display: flex; align-items: center; height: 100%; justify-content: flex-end;",
-              prettySwitch("sort_heatmap_samples", "Sort samples by Proliferation Score", value = TRUE, status = "info")
+              prettySwitch("sort_heatmap_samples", "Sort samples by Proliferation Score", value = TRUE, status = "info"),
+              prettySwitch("main_heatmap_subtype", "Show 7-class subtype annotation", value = FALSE, status = "info")
           )
         )
       ),
@@ -852,7 +853,8 @@ data_filtered <- reactive({
     req(input$heatmap_ann_vars)
     out <- list()
     for (var in input$heatmap_ann_vars) {
-      # Get unique levels for this variable
+      # Hide color picker for predefined subtypes
+      if (var %in% c("subtype_5_class", "subtype_7_class")) next
       vals <- metadata[[var]]
       if (is.numeric(vals)) next # skip numeric
       if (is.factor(vals)) {
@@ -886,10 +888,15 @@ data_filtered <- reactive({
     }
     ann <- data_filtered()
     ann <- ann[ann$sample_id %in% valid_samples, ]
+    subtype_levels <- levels(metadata$subtype_5_class)
+    ann$subtype_5_class <- factor(ann$subtype_5_class, levels = subtype_levels)
     ann <- ann[order(ann$subtype_5_class), ]
     
     # --- Sorting logic ---
-    if (!is.null(input$sort_heatmap_samples) && input$sort_heatmap_samples && exists("sample_order")) {
+    if (!is.null(input$sort_heatmap_samples) && input$sort_heatmap_samples) {
+      # Use the proliferation_score column from ann
+      sample_order <- ann$proliferation_score
+      names(sample_order) <- ann$sample_id
       ann$sample_order_val <- sample_order[as.character(ann$sample_id)]
       ann <- ann[order(ann$subtype_5_class, ann$sample_order_val, na.last = TRUE), ]
     }
@@ -900,30 +907,70 @@ data_filtered <- reactive({
     mg_exprs <- metagene_exprs()
     ann_tracks <- list()
     legends <- list()
-    subtype_levels <- levels(metadata$subtype_5_class)
-    subtype_colors <- lund_colors[subtype_levels]
-    # Always include subtype_5_class annotation track
-    ann_tracks[[length(ann_tracks) + 1]] <- plot_ly(
-      z = matrix(as.numeric(factor(ann$subtype_5_class, levels = subtype_levels)), nrow = 1),
-      x = sorted_samples,
-      y = "Subtype 5 Class",
-      type = "heatmap",
-      showscale = FALSE,
-      colors = subtype_colors,
-      hoverinfo = "text",
-      text = paste("Subtype:", ann$subtype_5_class)
-    )
-    legends[[length(legends) + 1]] <- tags$div(
-      tags$b("Subtype 5 Class:"),
-      tags$ul(
-        lapply(subtype_levels, function(lvl) {
-          tags$li(
-            tags$span(style = paste0("display:inline-block;width:15px;height:15px;background:", lund_colors[lvl], ";margin-right:5px;"), ""),
-            lvl
-          )
+
+      # Toggle between 5-class and 7-class subtype annotation tracks
+      if (isTRUE(input$main_heatmap_subtype)) {
+        # 7-class annotation track
+        subtype7_levels <- levels(metadata$subtype_7_class)
+        present7_levels <- subtype7_levels[subtype7_levels %in% ann$subtype_7_class]
+        ann$subtype_7_class <- factor(ann$subtype_7_class, levels = present7_levels)
+        ann <- ann[order(ann$subtype_7_class), ]
+        subtype7_colorscale <- lapply(seq_along(present7_levels), function(i) {
+          list((i-1)/(length(present7_levels)-1), lund_colors[present7_levels[i]])
         })
-      )
-    )
+        ann_tracks[[length(ann_tracks) + 1]] <- plot_ly(
+          z = matrix(as.numeric(ann$subtype_7_class), nrow = 1),
+          x = sorted_samples,
+          y = "Subtype 7 Class",
+          type = "heatmap",
+          showscale = FALSE,
+          colorscale = subtype7_colorscale,
+          hoverinfo = "text",
+          text = paste("Subtype:", ann$subtype_7_class)
+        )
+        legends[[length(legends) + 1]] <- tags$div(
+          tags$b("Subtype 7 Class:"),
+          tags$ul(
+            lapply(present7_levels, function(lvl) {
+              tags$li(
+                tags$span(style = paste0("display:inline-block;width:15px;height:15px;background:", lund_colors[lvl], ";margin-right:5px;"), ""),
+                lvl
+              )
+            })
+          )
+        )
+      } else {
+        # 5-class annotation track
+        subtype_levels <- levels(metadata$subtype_5_class)
+        present_levels <- subtype_levels[subtype_levels %in% ann$subtype_5_class]
+        ann$subtype_5_class <- factor(ann$subtype_5_class, levels = present_levels)
+        ann <- ann[order(ann$subtype_5_class), ]
+        subtype_colorscale <- lapply(seq_along(present_levels), function(i) {
+          list((i-1)/(length(present_levels)-1), lund_colors[present_levels[i]])
+        })
+        ann_tracks[[length(ann_tracks) + 1]] <- plot_ly(
+          z = matrix(as.numeric(ann$subtype_5_class), nrow = 1),
+          x = sorted_samples,
+          y = "Subtype 5 Class",
+          type = "heatmap",
+          showscale = FALSE,
+          colorscale = subtype_colorscale,
+          hoverinfo = "text",
+          text = paste("Subtype:", ann$subtype_5_class)
+        )
+        legends[[length(legends) + 1]] <- tags$div(
+          tags$b("Subtype 5 Class:"),
+          tags$ul(
+            lapply(present_levels, function(lvl) {
+              tags$li(
+                tags$span(style = paste0("display:inline-block;width:15px;height:15px;background:", lund_colors[lvl], ";margin-right:5px;"), ""),
+                lvl
+              )
+            })
+          )
+        )
+      }
+    
     # Add meta-gene annotation tracks
     if (length(mg_exprs) > 0) {
       for (mg_name in names(mg_exprs)) {
@@ -932,7 +979,6 @@ data_filtered <- reactive({
           z = matrix(mg_vec, nrow = 1),
           x = sorted_samples,
           y = mg_name,
-          type = "heatmap",
           colorscale = custom_colorscale,
           showscale = TRUE,
           colorbar = list(title = mg_name),
