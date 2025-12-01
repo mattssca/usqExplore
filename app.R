@@ -974,20 +974,25 @@ data_filtered <- reactive({
     # Add meta-gene annotation tracks
     if (length(mg_exprs) > 0) {
       for (mg_name in names(mg_exprs)) {
-        mg_vec <- mg_exprs[[mg_name]][sorted_samples]
+        mg_vec <- mg_exprs[[mg_name]]
+        # Ensure meta-gene vector is named by sample IDs
+        if (is.null(names(mg_vec)) || !all(sorted_samples %in% names(mg_vec))) {
+          names(mg_vec) <- colnames(expr_mat)
+        }
+        mg_vec <- mg_vec[sorted_samples]
         ann_tracks[[length(ann_tracks) + 1]] <- plot_ly(
           z = matrix(mg_vec, nrow = 1),
           x = sorted_samples,
           y = mg_name,
+          type = "heatmap",
           colorscale = custom_colorscale,
-          showscale = TRUE,
-          colorbar = list(title = mg_name),
+          zmin = -2,
+          zmax = 2,
+          showscale = FALSE,
           hoverinfo = "text",
           text = paste(mg_name, ":", signif(mg_vec, 3))
         )
-        legends[[length(legends) + 1]] <- tags$div(
-          tags$b(mg_name, ": Meta-gene (mean expression of selected genes)")
-        )
+        # No legend for meta-gene annotation tracks
       }
     }
     # Add user-selected annotation tracks
