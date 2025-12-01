@@ -1,5 +1,9 @@
 <img src="man/figures/logo.png" align="right" height="280" alt="usqExplore logo" />
 
+> **Interactive exploration and visualization of USQ bladder cancer cohort data**
+
+usqExplore is an R Shiny application designed for dynamic analysis and visualization of USQ cohort metadata, gene expression, and molecular subtype information. The app enables users to filter samples, generate heatmaps, perform survival analyses, and explore clinical endpoints, supporting reproducible and insightful workflows in bladder cancer research.
+
 # usqExplore
 
 Welcome to the UROSCANSEQ Explorer Shiny App!
@@ -27,7 +31,7 @@ git clone https://github.com/mattssca/usqUtils.git
    - Log in to LU Box and locate the associated data folder for this package `(/Git/data/usqExplore)`.
    - Download the contents of the LU Box data folder.
    - Add the folder (with its contents) to the cloned version of usqExplore's data fodler `usqExplore/data/`
-   
+
 3. **Install required R packages**
 In the RStudio Console, run:
      ```r
