@@ -11,15 +11,16 @@ library(survival)
 library(survminer)
 
 # Load required data
-load("uroscanseq_meta.Rdata")
-metadata = uroscanseq_meta
-load("expr_met_uroscanseq.Rdata")
-expr_mat = as.matrix(uroscanseq_expr)
-load("sample_order.Rdata")
+load("data/LU_box/metadata.Rdata")
+load("data/LU_box/expr_mat.Rdata")
+expr_mat = as.matrix(expr_mat)
+
+load("data/sample_order.Rdata")
 names(sample_order) <- colnames(expr_mat)[sample_order]
-load("genes_to_plot_df.Rdata")
-load("exp_genes.Rdata")
-load("var_categories.Rdata")
+
+load("data/genes_to_plot_df.Rdata")
+load("data/expr_gene_names.Rdata")
+load("data/LU_box/var_categories.Rdata")
 
 lund_colors <- c(
   Uro = "#3cb44b",
@@ -33,9 +34,9 @@ lund_colors <- c(
 )
 
 custom_colorscale <- list(
-  list(0, "green"),
+  list(0, "#4DF76F"),
   list(0.5, "black"),
-  list(1, "red")
+  list(1, "#F74D4D")
 )
 
 # --- Forest Plot Signature Names (global scope) ---
@@ -45,14 +46,15 @@ forest_signature_names <- c(
   "Myeloid DCs", "Monocytic Lineage", "Macrophages", "M2 Macrophages", "Neutrophils", 
   "Stromal 141_UP", "Fibroblasts", "Endothelial Cells", "Smooth Muscle"
 )
+
 forest_metadata_names <- c(
-  "Proliferation.Score", "Mol.Grade.WHO.1999.Score", "Mol.Grade.WHO.2022.Score", "Progression.Score", 
-  "Immune.141.Up", "NK.Cells", "T.Cells", "T.Cells.CD8", "Cytotoxicity.Score", "B.Cells", 
-  "Myeloid.DCs", "Monocytic.Lineage", "Macrophages", "M2.Macrophage", "Neutrophils", 
-  "Stromal.141.Up", "Fibroblasts", "Endothlial.Cells", "Smooth.Muscle"
+  "proliferation_score", "molecular_grade_who_1999_score", "molecular_grade_who_2022_score", "progression_score", 
+  "immune141_up", "nk_cells", "t_cells", "t_cells_cd8", "cytotoxicity_score", "b_cells", 
+  "myeloid_dendritic_cells", "monocytic_lineage", "macrophages", "m2_macrophage", "neutrophils", 
+  "stromal141_up", "fibroblasts", "endothelial_cells", "smooth_muscle"
 )
 
-#' Bin Numeric Variables (internal)
+# Bin Numeric Variables (internal)
 int_bin_numeric_variables <- function(this_data = NULL, num_bins = NULL){
   numeric_columns = sapply(this_data, is.numeric)
   bin_column = function(column, num_bins){
@@ -98,7 +100,7 @@ ui <- fluidPage(
   fluidRow(
     column(
       width = 12,
-      tags$img(src = "logo.png", height = "100px", style = "margin-bottom:10px;"),
+      tags$img(src = "logo.png", height = "200px", style = "margin-bottom:10px;"),
       # Removed helpText from here; moved to filter box below
     )
   ),
@@ -171,11 +173,11 @@ ui <- fluidPage(
               tags$li("You can also sort/rank by the X variable and show proportions using the switches below.")
             )
           ),
-          pickerInput("xvar", "X variable", choices = var_categories, selected = "Prediction.5.Class", 
+          pickerInput("xvar", "X variable", choices = var_categories, selected = "subtype_5_class", 
                       options = list(`live-search` = TRUE)),
           pickerInput("yvar", "Y variable (optional)", choices = c("None", var_categories), selected = "None", 
                       options = list(`live-search` = TRUE)),
-          pickerInput("color", "Color by (optional)", choices = c("None", var_categories), selected = "Prediction.5.Class", 
+          pickerInput("color", "Color by (optional)", choices = c("None", var_categories), selected = "subtype_5_class", 
                       options = list(`live-search` = TRUE)),
           radioGroupButtons("plot_type", "Plot type",
                             choices = c("Histogram" = "hist", "Barplot" = "bar", "Boxplot" = "box", "Scatterplot" = "scatter"),
@@ -225,7 +227,7 @@ ui <- fluidPage(
       pickerInput(
         "heatmap_ann_vars",
         "Add annotation variable(s) for heatmap (in addition to Subtype 5 Class)",
-        choices = setdiff(names(metadata), "Prediction.5.Class"),
+        choices = setdiff(names(metadata), "subtype_5_class"),
         multiple = TRUE,
         options = list(`live-search` = TRUE)
       ),
@@ -267,23 +269,24 @@ ui <- fluidPage(
           ),
           tags$div(class = "section-title", "Kaplan-Meier Plot"),
           selectizeInput("km_gene", "Select gene or meta-gene",
-                      choices = exp_genes, selected = NULL, options = list(server = TRUE)),
+                      choices = expr_gene_names, selected = NULL, options = list(server = TRUE)),
           selectInput(
             "km_endpoint", "Select clinical endpoint",
             choices = c(
-              "Progression",
+              "Biological Progression",
               "Clinical Progression",
               "Clinical Progression During Follow-up",
               "BCG Any",
-              "BCG Adequate"
+              "BCG Adequate",
+              "Recurrance"
             ),
             selected = "Clinical Progression"
           ),
           pickerInput(
             "km_filter_subtypes",
             "Filter samples by subtype",
-            choices = levels(metadata$Prediction.5.Class),
-            selected = levels(metadata$Prediction.5.Class),
+            choices = levels(metadata$subtype_5_class),
+            selected = levels(metadata$subtype_5_class),
             multiple = TRUE,
             options = list(`actions-box` = TRUE, `live-search` = TRUE)
           ),
@@ -326,19 +329,20 @@ ui <- fluidPage(
           selectInput(
             "forest_endpoint", "Select clinical endpoint",
             choices = c(
-              "Progression",
+              "Biological Progression",
               "Clinical Progression",
               "Clinical Progression During Follow-up",
               "BCG Any",
-              "BCG Adequate"
+              "BCG Adequate",
+              "Recurrence"
             ),
             selected = "Clinical Progression"
           ),
           pickerInput(
             "forest_filter_subtypes",
             "Filter samples by subtype",
-            choices = levels(metadata$Prediction.5.Class),
-            selected = levels(metadata$Prediction.5.Class),
+            choices = levels(metadata$subtype_5_class),
+            selected = levels(metadata$subtype_5_class),
             multiple = TRUE,
             options = list(`actions-box` = TRUE, `live-search` = TRUE)
           ),
@@ -433,8 +437,8 @@ server <- function(input, output, session) {
       y <- if (input$yvar != "None") input$yvar else NULL
       color <- if (input$color != "None") input$color else NULL
       show_prop <- isTRUE(input$show_proportion)
-      color_map <- if (!is.null(color) && color %in% c("Prediction.5.Class", "Prediction.7.Class")) lund_colors else NULL
-      hide_x_ticks <- identical(x, "Sample.ID")
+      color_map <- if (!is.null(color) && color %in% c("subtype_5_class", "Prediction.7.Class")) lund_colors else NULL
+      hide_x_ticks <- identical(x, "sample_id")
       # Only support hist/bar/box/scatter for PNG export
       if (input$plot_type == "hist") {
         hist(df[[x]], main = paste("Histogram of", x), xlab = x, col = "#73bac9")
@@ -610,7 +614,7 @@ data_filtered <- reactive({
     }, error = function(e) NULL)
     ids <- trimws(ids)
     ids <- ids[ids != ""]
-    df <- df[df$Sample.ID %in% ids, , drop = FALSE]
+    df <- df[df$sample_id %in% ids, , drop = FALSE]
   }
   for (id in filter_ids()) {
     var <- input[[paste0(id, "_var")]]
@@ -637,7 +641,7 @@ data_filtered <- reactive({
     y <- if (input$yvar != "None") input$yvar else NULL
     color <- if (input$color != "None") input$color else NULL
     show_prop <- isTRUE(input$show_proportion)
-    color_map <- if (!is.null(color) && color %in% c("Prediction.5.Class", "Prediction.7.Class")) lund_colors else NULL
+    color_map <- if (!is.null(color) && color %in% c("subtype_5_class", "Prediction.7.Class")) lund_colors else NULL
     
     if (input$sort_x && !is.null(x) && !is.null(y)) {
       ord <- order(df[[y]], na.last = TRUE)
@@ -645,7 +649,7 @@ data_filtered <- reactive({
       df[[x]] <- factor(df[[x]], levels = unique(df[[x]]))
     }
     
-    hide_x_ticks <- identical(x, "Sample.ID")
+    hide_x_ticks <- identical(x, "sample_id")
     
     if (input$plot_type == "hist") {
       p <- plot_ly(
@@ -711,7 +715,7 @@ data_filtered <- reactive({
       paste0("sample_ids_", Sys.Date(), ".txt")
     },
     content = function(file) {
-      writeLines(as.character(data_filtered()$Sample.ID), file)
+      writeLines(as.character(data_filtered()$sample_id), file)
     }
   )
   
@@ -755,7 +759,7 @@ data_filtered <- reactive({
   # Meta-gene UI with filter
   output$metagene_ui <- renderUI({
     mg_list <- metagenes()
-    genes <- exp_genes
+    genes <- expr_gene_names
     mg_ui <- lapply(seq_along(mg_list), function(i) {
       mg_id <- names(mg_list)[i]
       fluidRow(
@@ -774,9 +778,9 @@ data_filtered <- reactive({
     for (mg_id in names(mg_list)) {
       observe({
         filter_val <- input[[paste0(mg_id, "_filter")]]
-        filtered_genes <- exp_genes
+        filtered_genes <- expr_gene_names
         if (!is.null(filter_val) && nzchar(filter_val)) {
-          filtered_genes <- grep(filter_val, exp_genes, value = TRUE, ignore.case = TRUE)
+          filtered_genes <- grep(filter_val, expr_gene_names, value = TRUE, ignore.case = TRUE)
         }
         updateSelectizeInput(session, paste0(mg_id, "_genes"), choices = filtered_genes, server = TRUE)
       })
@@ -815,7 +819,7 @@ data_filtered <- reactive({
   
   # Determine selected genes for heatmap
   selected_genes_heatmap <- reactive({
-    genes <- exp_genes
+    genes <- expr_gene_names
     # Priority: uploaded file > predefined signature > manual selection
     if (!is.null(input$gene_file)) {
       up_genes <- uploaded_genes()
@@ -837,7 +841,7 @@ data_filtered <- reactive({
   
   # Heatmap gene selection UI with filter
   output$gene_select_ui <- renderUI({
-    genes <- exp_genes
+    genes <- expr_gene_names
     if (!is.null(input$gene_signature) && input$gene_signature == "Custom Genes") {
       selectizeInput("genes", "Select Genes for Heatmap (manual entry)", choices = genes, multiple = TRUE, selected = NULL, options = list(server = TRUE))
     }
@@ -873,7 +877,7 @@ data_filtered <- reactive({
   
   observeEvent(input$plot_heatmap, {
     req(expr_mat)
-    sample_ids <- data_filtered()$Sample.ID
+    sample_ids <- data_filtered()$sample_id
     valid_samples <- sample_ids[sample_ids %in% colnames(expr_mat)]
     if (length(valid_samples) == 0) {
       output$heatmap_plot <- renderPlotly({ plotly_empty() })
@@ -881,33 +885,33 @@ data_filtered <- reactive({
       return()
     }
     ann <- data_filtered()
-    ann <- ann[ann$Sample.ID %in% valid_samples, ]
-    ann <- ann[order(ann$Prediction.5.Class), ]
+    ann <- ann[ann$sample_id %in% valid_samples, ]
+    ann <- ann[order(ann$subtype_5_class), ]
     
     # --- Sorting logic ---
     if (!is.null(input$sort_heatmap_samples) && input$sort_heatmap_samples && exists("sample_order")) {
-      ann$sample_order_val <- sample_order[as.character(ann$Sample.ID)]
-      ann <- ann[order(ann$Prediction.5.Class, ann$sample_order_val, na.last = TRUE), ]
+      ann$sample_order_val <- sample_order[as.character(ann$sample_id)]
+      ann <- ann[order(ann$subtype_5_class, ann$sample_order_val, na.last = TRUE), ]
     }
-    sorted_samples <- ann$Sample.ID
+    sorted_samples <- ann$sample_id
     mat <- expr_mat[selected_genes_heatmap(), sorted_samples, drop = FALSE]
     
     # --- Add meta-genes as annotation tracks ---
     mg_exprs <- metagene_exprs()
     ann_tracks <- list()
     legends <- list()
-    subtype_levels <- levels(metadata$Prediction.5.Class)
+    subtype_levels <- levels(metadata$subtype_5_class)
     subtype_colors <- lund_colors[subtype_levels]
-    # Always include Prediction.5.Class annotation track
+    # Always include subtype_5_class annotation track
     ann_tracks[[length(ann_tracks) + 1]] <- plot_ly(
-      z = matrix(as.numeric(factor(ann$Prediction.5.Class, levels = subtype_levels)), nrow = 1),
+      z = matrix(as.numeric(factor(ann$subtype_5_class, levels = subtype_levels)), nrow = 1),
       x = sorted_samples,
       y = "Subtype 5 Class",
       type = "heatmap",
       showscale = FALSE,
       colors = subtype_colors,
       hoverinfo = "text",
-      text = paste("Subtype:", ann$Prediction.5.Class)
+      text = paste("Subtype:", ann$subtype_5_class)
     )
     legends[[length(legends) + 1]] <- tags$div(
       tags$b("Subtype 5 Class:"),
@@ -1052,7 +1056,7 @@ data_filtered <- reactive({
   prev_gene_choices <- reactiveVal(NULL)
 
   observe({
-    gene_choices <- c(names(metagene_exprs()), exp_genes)
+    gene_choices <- c(names(metagene_exprs()), expr_gene_names)
     current_sel <- input$km_gene
     valid_sel <- current_sel[current_sel %in% gene_choices]
     if (!identical(prev_gene_choices(), gene_choices)) {
@@ -1068,29 +1072,31 @@ data_filtered <- reactive({
     endpoint <- input$km_endpoint
     filter_subtypes <- input$km_filter_subtypes
     metagenes <- metagene_exprs()
-    genes_all <- exp_genes
+    genes_all <- expr_gene_names
     req(gene_selected, cut_method, endpoint, filter_subtypes)
     df <- data_filtered()
     gene <- gene_selected
 
     # Filter samples by selected subtypes
-    df <- df[df$Prediction.5.Class %in% filter_subtypes, , drop = FALSE]
+    df <- df[df$subtype_5_class %in% filter_subtypes, , drop = FALSE]
 
     # Endpoint mapping (adjust column names as needed)
     endpoint_map <- list(
-      "Progression" = list(time_col = "Progression.Time", event_col = "Progression.Event"),
-      "Clinical Progression" = list(time_col = "Progression.Clinical.Time", event_col = "Progression.Clinical.Event"),
-      "Clinical Progression During Follow-up" = list(time_col = "Progression.During.Follow.up.Time", event_col = "Progression.During.Follow.up.Event"),
-      "BCG Any" = list(time_col = "BCG.Any.Time", event_col = "BCG.Any.Event"),
-      "BCG Adequate" = list(time_col = "BCG.Adequate.Time", event_col = "BCG.Adequate.Event")
+      "Biological Progression" = list(time_col = "progression_biological_time", event_col = "progression_biological_event"),
+      "Clinical Progression" = list(time_col = "progression_clinical_time", event_col = "progression_clinical_event"),
+      "Clinical Progression During Follow-up" = list(time_col = "progression_fu_time", event_col = "progression_fu_event"),
+      "BCG Any" = list(time_col = "bcg_any_time", event_col = "bcg_any_event"),
+      "BCG Adequate" = list(time_col = "bcg_adequate_time", event_col = "bcg_adequate_event"),
+      "Recurrance" = list(time_col = "recurrence_time", event_col = "recurrence_event")
     )
+    
     ep <- endpoint_map[[endpoint]]
     if (is.null(ep)) return(NULL)
 
     # Filter out samples with NA in the event column
     df <- df[!is.na(df[[ep$event_col]]), , drop = FALSE]
 
-    valid_samples <- df$Sample.ID[df$Sample.ID %in% colnames(expr_mat)]
+    valid_samples <- df$sample_id[df$sample_id %in% colnames(expr_mat)]
     if (gene %in% names(metagenes)) {
       expr <- metagenes[[gene]][valid_samples]
     } else if (gene %in% rownames(expr_mat)) {
@@ -1098,7 +1104,7 @@ data_filtered <- reactive({
     } else {
       return(NULL)
     }
-    df <- df[df$Sample.ID %in% valid_samples, , drop = FALSE]
+    df <- df[df$sample_id %in% valid_samples, , drop = FALSE]
 
     surv_time <- suppressWarnings(as.numeric(as.character(df[[ep$time_col]])))
     event_col <- df[[ep$event_col]]
@@ -1116,7 +1122,7 @@ data_filtered <- reactive({
     expr <- expr[valid]
     surv_time <- surv_time[valid]
     surv_event <- surv_event[valid]
-    subtype <- droplevels(df$Prediction.5.Class[valid])
+    subtype <- droplevels(df$subtype_5_class[valid])
 
     cut_method <- input$km_cut
     group <- NULL
@@ -1146,7 +1152,7 @@ data_filtered <- reactive({
     n_events <- sum(surv_event == 1, na.rm = TRUE)
     n_no_events <- sum(surv_event == 0, na.rm = TRUE)
     # Dynamic plot title based on selected subtypes
-    if (length(filter_subtypes) == length(levels(df$Prediction.5.Class))) {
+    if (length(filter_subtypes) == length(levels(df$subtype_5_class))) {
       plot_title <- "Kaplan-Meier: All Subtypes"
       subset_info <- "All subtypes included"
     } else {
@@ -1193,17 +1199,18 @@ group_palette <- ggsci::pal_npg()(4)
   forest_results <- reactive({
     req(input$forest_endpoint, input$forest_filter_subtypes)
     df <- data_filtered()
-    df <- df[df$Prediction.5.Class %in% input$forest_filter_subtypes, , drop = FALSE]
-    valid_samples <- df$Sample.ID[df$Sample.ID %in% colnames(expr_mat)]
-    df <- df[df$Sample.ID %in% valid_samples, , drop = FALSE]
+    df <- df[df$subtype_5_class %in% input$forest_filter_subtypes, , drop = FALSE]
+    valid_samples <- df$sample_id[df$sample_id %in% colnames(expr_mat)]
+    df <- df[df$sample_id %in% valid_samples, , drop = FALSE]
 
     endpoint_map <- list(
-      "Progression" = list(time_col = "Progression.Time", event_col = "Progression.Event"),
-      "Clinical Progression" = list(time_col = "Progression.Clinical.Time", event_col = "Progression.Clinical.Event"),
-      "Clinical Progression During Follow-up" = list(time_col = "Progression.During.Follow.up.Time", event_col = "Progression.During.Follow.up.Event"),
-      "BCG Any" = list(time_col = "BCG.Any.Time", event_col = "BCG.Any.Event"),
-      "BCG Adequate" = list(time_col = "BCG.Adequate.Time", event_col = "BCG.Adequate.Event")
+      "Biological Progression" = list(time_col = "progression_biological_time", event_col = "progression_biological_event"),
+      "Clinical Progression" = list(time_col = "progression_clinical_time", event_col = "progression_clinical_event"),
+      "Clinical Progression During Follow-up" = list(time_col = "progression_fu_time", event_col = "progression_fu_event"),
+      "BCG Any" = list(time_col = "bcg_any_time", event_col = "bcg_any_event"),
+      "BCG Adequate" = list(time_col = "bcg_adequate_time", event_col = "bcg_adequate_event")
     )
+    
     ep <- endpoint_map[[input$forest_endpoint]]
     if (is.null(ep)) return(NULL)
 
@@ -1323,19 +1330,22 @@ group_palette <- ggsci::pal_npg()(4)
     forest_df$color <- "black"
     forest_df$color[forest_df$P < 0.05] <- "red"
     forest_df$color[forest_df$Bonferroni_P < 0.05] <- "blue"
-    all_subtypes <- length(input$forest_filter_subtypes) == length(levels(metadata$Prediction.5.Class))
+    all_subtypes <- length(input$forest_filter_subtypes) == length(levels(metadata$subtype_5_class))
     # Use sample count from the filtered data
     df <- data_filtered()
-    df <- df[df$Prediction.5.Class %in% input$forest_filter_subtypes, , drop = FALSE]
-    valid_samples <- df$Sample.ID[df$Sample.ID %in% colnames(expr_mat)]
-    df <- df[df$Sample.ID %in% valid_samples, , drop = FALSE]
+    df <- df[df$subtype_5_class %in% input$forest_filter_subtypes, , drop = FALSE]
+    valid_samples <- df$sample_id[df$sample_id %in% colnames(expr_mat)]
+    df <- df[df$sample_id %in% valid_samples, , drop = FALSE]
+    
     endpoint_map <- list(
-      "Progression" = list(time_col = "Progression.Time", event_col = "Progression.Event"),
-      "Clinical Progression" = list(time_col = "Progression.Clinical.Time", event_col = "Progression.Clinical.Event"),
-      "Clinical Progression During Follow-up" = list(time_col = "Progression.During.Follow.up.Time", event_col = "Progression.During.Follow.up.Event"),
-      "BCG Any" = list(time_col = "BCG.Any.Time", event_col = "BCG.Any.Event"),
-      "BCG Adequate" = list(time_col = "BCG.Adequate.Time", event_col = "BCG.Adequate.Event")
+      "Biological Progression" = list(time_col = "progression_biological_time", event_col = "progression_biological_event"),
+      "Clinical Progression" = list(time_col = "progression_clinical_time", event_col = "progression_clinical_event"),
+      "Clinical Progression During Follow-up" = list(time_col = "progression_fu_time", event_col = "progression_fu_event"),
+      "BCG Any" = list(time_col = "bcg_any_time", event_col = "bcg_any_event"),
+      "BCG Adequate" = list(time_col = "bcg_adequate_time", event_col = "bcg_adequate_event"),
+      "Recurrance" = list(time_col = "recurrence_time", event_col = "recurrence_event")
     )
+    
     ep <- endpoint_map[[input$forest_endpoint]]
     # Filter out samples with NA in the event column (and time column)
     if (!is.null(ep)) {
